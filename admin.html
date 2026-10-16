@@ -55,11 +55,13 @@ button:focus-visible,input:focus{outline:3px solid var(--acc);outline-offset:1px
 <script>
 // ТЕ ЖЕ ДАННЫЕ, ЧТО В index.html
 const SB = "https://roolbmnfwenhkajgmvrh.supabase.co";
-const KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvb2xibW5md2VuaGthamdtdnJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5Mjg1NDEsImV4cCI6MjA4OTUwNDU0MX0.Av0eE_b5gPaHhoitDaR9N4sdt5ne6dik3r5NMX07T6g"; 
+const KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvb2xibW5md2VuaGthamdtdnJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5Mjg1NDEsImV4cCI6MjA4OTUwNDU0MX0.Av0eE_b5gPaHhoitDaR9N4sdt5ne6dik3r5NMX07T6g";
 
 let token = sessionStorage.getItem("tk"), rows = [], filter = "all";
 const MARK = {ok:"✅", no:"❌", maybe:"❓"};
-const FILTERS = [["all","Все"],["new","Не смотрел"],["ok","✅"],["no","❌"],["maybe","❓"]];
+const FILTERS = [["all","Все"],["new","Не смотрел"],["ok","✅"],["no","❌"],["maybe","❓"],["5-7","5–7 класс"],["8-11","8–11 класс"]];
+const match = (r,k) => k==="all" || (k==="new" ? !r.status : (k==="5-7"||k==="8-11") ? r.grade===k : r.status===k);
+const GR = {"5-7":"5–7 кл.","8-11":"8–11 кл."};
 const H = () => ({apikey:KEY, Authorization:"Bearer "+token, "Content-Type":"application/json"});
 const $ = id => document.getElementById(id);
 function el(tag, props, ...kids){ const e = document.createElement(tag); Object.assign(e, props||{}); kids.forEach(k => e.append(k)); return e; }
@@ -82,18 +84,18 @@ function start(){ $("login").hidden = true; $("app").hidden = false; load(); }
 function draw(){
   const bar = $("bar"); bar.innerHTML = "";
   FILTERS.forEach(([k,t]) => {
-    const n = rows.filter(r => k==="all" || (k==="new" ? !r.status : r.status===k)).length;
+    const n = rows.filter(r => match(r,k)).length;
     const b = el("button", {textContent: t+" "+n, className: filter===k ? "on" : ""}); b.onclick = () => { filter = k; draw(); }; bar.append(b);
   });
   bar.append(el("button", {textContent:"Обновить", onclick:load}));
   const list = $("list"); list.innerHTML = "";
-  const shown = rows.filter(r => filter==="all" || (filter==="new" ? !r.status : r.status===filter));
+  const shown = rows.filter(r => match(r,filter));
   if(!shown.length){ list.append(el("p", {className:"empty", textContent:"Здесь пока пусто."})); return; }
   shown.forEach(r => {
     const c = el("button", {className:"card"}); c.dataset.s = r.status || "";
     const first = (r.songs||[])[0];
     c.append(el("span", {className:"mark", textContent: MARK[r.status] || ""}),
-      el("div", {className:"d", textContent: new Date(r.created_at).toLocaleString("ru-RU")+" · песен: "+(r.songs||[]).length}),
+      el("div", {className:"d", textContent: (GR[r.grade] ? GR[r.grade]+" · " : "")+new Date(r.created_at).toLocaleString("ru-RU")+" · песен: "+(r.songs||[]).length+((r.banned||[]).length ? " · не ставить: "+r.banned.length : "")}),
       el("div", {className:"p", textContent: r.note || (first ? [first.title, first.author].filter(Boolean).join(" — ") : "(без текста)")}));
     c.onclick = () => open(r); list.append(c);
   });
@@ -102,13 +104,18 @@ function draw(){
 function open(r){
   const s = $("sheet"); s.innerHTML = "";
   const x = el("button", {className:"x", textContent:"×"}); x.onclick = close;
-  s.append(x, el("h2", {textContent:"Заявка"}), el("div", {className:"d", style:"color:#b9b0e0", textContent:new Date(r.created_at).toLocaleString("ru-RU")}));
+  s.append(x, el("h2", {textContent:"Заявка"+(GR[r.grade] ? " · "+GR[r.grade] : "")}), el("div", {className:"d", style:"color:#b9b0e0", textContent:new Date(r.created_at).toLocaleString("ru-RU")}));
   if(r.note) s.append(el("div", {className:"note", textContent:r.note}));
   (r.songs||[]).forEach(g => {
     const d = el("div", {className:"s"}, el("b", {textContent:[g.title, g.author].filter(Boolean).join(" — ") || "(без названия)"}));
+    if(g.when) d.append(el("span", {textContent:" · "+g.when, style:"color:#ffb347;font-weight:bold"}));
     if(g.url){ d.append(el("audio", {controls:true, preload:"none", src:g.url}), el("a", {href:g.url, download:g.filename||"", textContent:"  Скачать "+(g.filename||""), style:"color:#ffb347;font-size:.85rem"})); }
     s.append(d);
   });
+  if((r.banned||[]).length){
+    s.append(el("h3", {textContent:"Не ставить", style:"margin:16px 0 4px;color:#ff9aa8"}));
+    r.banned.forEach(g => s.append(el("div", {className:"s", textContent:[g.title, g.author].filter(Boolean).join(" — ")})));
+  }
   const st = el("div", {className:"st"});
   Object.entries(MARK).forEach(([k,m]) => {
     const b = el("button", {textContent:m, className: r.status===k ? "on" : ""});
