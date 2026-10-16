@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Заказ песен на дискотеку</title>
+<style>
+:root{--bg:#231a4f;--card:#2f2566;--line:#4a3d8f;--txt:#fff6e8;--dim:#b9b0e0;--acc:#ffb347;--pink:#ff5c8a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:17px/1.4 "Trebuchet MS",system-ui,sans-serif;padding:24px 16px 60px}
+main{max-width:640px;margin:0 auto}
+h1{font-size:2.2rem;line-height:1.1;margin:0 0 6px}
+.sub{color:var(--dim);margin:0 0 24px}
+label{display:block;font-weight:bold;margin:0 0 6px}
+textarea,input[type=text]{width:100%;background:var(--bg);color:var(--txt);border:2px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit}
+textarea:focus,input:focus,button:focus-visible{outline:3px solid var(--acc);outline-offset:1px}
+textarea{min-height:90px;resize:vertical}
+.song{background:var(--card);border-radius:14px;padding:14px;margin:12px 0;position:relative}
+.song .g{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:480px){.song .g{grid-template-columns:1fr}}
+.song input[type=file]{margin-top:10px;width:100%;color:var(--dim);font-size:.9rem}
+.rm{position:absolute;top:8px;right:10px;background:none;border:0;color:var(--dim);font-size:1.4rem;cursor:pointer}
+button.main,button.add{font:inherit;font-weight:bold;border:0;border-radius:12px;padding:12px 20px;cursor:pointer}
+button.add{background:none;border:2px dashed var(--acc);color:var(--acc);width:100%}
+button.main{background:var(--pink);color:#fff;font-size:1.1rem;margin-top:22px;width:100%}
+button.files{background:var(--acc);color:#2b1d00;margin:0 0 10px;font-size:1.05rem}
+button:disabled{opacity:.5;cursor:wait}
+#msg{margin-top:16px;font-weight:bold;min-height:1.4em}
+.ok{color:#8affb0}.err{color:#ff9aa8}
+</style></head><body><main>
+<h1>Что поставим на дискотеке?</h1>
+<p class="sub">Это анонимно. Пиши названия, прикладывай файлы, а если песен несколько, нажми «Добавить файлы» и выбери сразу все.</p>
+
+<label for="note">Пожелания</label>
+<textarea id="note" placeholder="Например: побольше медленных танцев в конце"></textarea>
+
+<div id="songs"></div>
+<input type="file" id="pick" multiple hidden accept=".mp3,.wav,.ogg,.m4a,.aac,.flac,audio/*">
+<button class="main files" id="addfile" type="button">📁 Добавить файлы (можно сразу много)</button>
+<button class="add" id="add" type="button">+ Добавить песню без файла</button>
+<button class="main" id="send" type="button">Отправить</button>
+<div id="msg" role="status"></div>
+</main>
+<script>
+// ВСТАВЬ СВОИ ДАННЫЕ ИЗ SUPABASE (Project Settings → API)
+const SB = "https://ТВОЙ-ПРОЕКТ.supabase.co";
+const KEY = "ТВОЙ-ANON-PUBLIC-KEY";
+
+const box = document.getElementById("songs"), msg = document.getElementById("msg");
+function addRow(file){
+  const d = document.createElement("div"); d.className = "song";
+  d.innerHTML = '<button class="rm" type="button" aria-label="Убрать песню">×</button>'+
+    '<div class="g"><div><label>Название</label><input type="text" class="t"></div>'+
+    '<div><label>Автор</label><input type="text" class="a"></div></div>'+
+    '<input type="file" class="f" accept=".mp3,.wav,.ogg,.m4a,.aac,.flac,audio/*">';
+  d.querySelector(".rm").onclick = () => { d.remove(); if(!box.children.length) addRow(); };
+  if(file){
+    const dt = new DataTransfer(); dt.items.add(file); d.querySelector(".f").files = dt.files;
+    d.querySelector(".t").value = file.name.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ");
+  }
+  box.appendChild(d);
+}
+addRow();
+const pick = document.getElementById("pick");
+document.getElementById("addfile").onclick = () => pick.click();
+pick.onchange = () => {
+  const empty = [...box.children].filter(r => !r.querySelector(".t").value && !r.querySelector(".a").value && !r.querySelector(".f").files[0]);
+  if(pick.files.length) empty.forEach(r => r.remove());
+  [...pick.files].forEach(f => addRow(f));
+  pick.value = "";
+};
+document.getElementById("add").onclick = () => { addRow(); box.lastChild.querySelector(".t").focus(); };
+
+function say(t, c){ msg.textContent = t; msg.className = c || ""; }
+
+document.getElementById("send").onclick = async function(){
+  const note = document.getElementById("note").value.trim();
+  const rows = [...box.children].map(r => ({
+    title: r.querySelector(".t").value.trim(),
+    author: r.querySelector(".a").value.trim(),
+    file: r.querySelector(".f").files[0] || null
+  })).filter(r => r.title || r.author || r.file);
+  if(!note && !rows.length){ say("Напиши пожелание или добавь хотя бы одну песню.", "err"); return; }
+  this.disabled = true; say("Отправляю…");
+  try{
+    const songs = [];
+    for(const [i, r] of rows.entries()){
+      let url = null;
+      if(r.file){
+        if(r.file.size > 50*1024*1024) throw new Error("Файл «"+r.file.name+"» больше 50 МБ.");
+        say("Загружаю файл "+(i+1)+" из "+rows.length+"…");
+        const ext = (r.file.name.match(/\.[a-z0-9]+$/i) || [".mp3"])[0].toLowerCase();
+        const path = crypto.randomUUID()+ext;
+        const up = await fetch(SB+"/storage/v1/object/songs/"+path, {method:"POST",
+          headers:{apikey:KEY, Authorization:"Bearer "+KEY, "Content-Type": r.file.type || "audio/mpeg"}, body:r.file});
+        if(!up.ok) throw new Error("Не удалось загрузить файл «"+r.file.name+"».");
+        url = SB+"/storage/v1/object/public/songs/"+path;
+      }
+      songs.push({title:r.title, author:r.author, url, filename: r.file ? r.file.name : null});
+    }
+    const res = await fetch(SB+"/rest/v1/requests", {method:"POST",
+      headers:{apikey:KEY, Authorization:"Bearer "+KEY, "Content-Type":"application/json", Prefer:"return=minimal"},
+      body: JSON.stringify({note, songs})});
+    if(!res.ok) throw new Error("Сервер не принял заявку. Попробуй ещё раз.");
+    say("Готово! Заявка отправлена. Можно отправить ещё.", "ok");
+    document.getElementById("note").value = ""; box.innerHTML = ""; addRow();
+  }catch(e){ say(e.message, "err"); }
+  this.disabled = false;
+};
+</script></body></html>
