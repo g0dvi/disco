@@ -74,8 +74,8 @@ const box = document.getElementById("songs"), msg = document.getElementById("msg
 function addRow(file){
   const d = document.createElement("div"); d.className = "song";
   d.innerHTML = '<button class="rm" type="button" aria-label="Убрать песню">×</button>'+
-    '<div class="g"><div><label>Название</label><input type="text" class="t"></div>'+
-    '<div><label>Автор</label><input type="text" class="a"></div></div>'+
+    '<div class="g"><div><label>Название<span class="dim">(необязательно)</span></label><input type="text" class="t"></div>'+
+    '<div><label>Исполнитель<span class="dim">(необязательно)</span></label><input type="text" class="a"></div></div>'+
     '<label style="margin-top:10px">Куда поставить</label>'+
     '<select class="w"><option value="">Не важно</option><option>Медляк</option><option>Начало</option><option>Середина</option><option>Конец</option></select>'+
     '<input type="file" class="f" accept=".mp3,.wav,.ogg,.m4a,.aac,.flac,audio/*">';
