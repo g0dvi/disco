@@ -11,6 +11,8 @@ h1{font-size:2.2rem;line-height:1.1;margin:0 0 6px}
 .sub{color:var(--dim);margin:0 0 24px}
 label{display:block;font-weight:bold;margin:0 0 6px}
 textarea,input[type=text]{width:100%;background:var(--bg);color:var(--txt);border:2px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit}
+select{width:100%;background:var(--bg);color:var(--txt);border:2px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit}
+select:focus{outline:3px solid var(--acc);outline-offset:1px}
 textarea:focus,input:focus,button:focus-visible{outline:3px solid var(--acc);outline-offset:1px}
 textarea{min-height:90px;resize:vertical}
 .song{background:var(--card);border-radius:14px;padding:14px;margin:12px 0;position:relative}
@@ -21,21 +23,45 @@ textarea{min-height:90px;resize:vertical}
 button.main,button.add{font:inherit;font-weight:bold;border:0;border-radius:12px;padding:12px 20px;cursor:pointer}
 button.add{background:none;border:2px dashed var(--acc);color:var(--acc);width:100%}
 button.main{background:var(--pink);color:#fff;font-size:1.1rem;margin-top:22px;width:100%}
+fieldset{border:0;padding:0;margin:0 0 24px}
+legend{font-weight:bold;margin-bottom:8px;padding:0}
+.req{color:var(--pink);font-weight:normal;font-size:.85rem;margin-left:6px}
+.dim{color:var(--dim);font-weight:normal}
+.opt{display:inline-block;margin:0 10px 0 0;cursor:pointer}
+.opt input{position:absolute;opacity:0}
+.opt span{display:inline-block;padding:12px 22px;border:2px solid var(--line);border-radius:12px;background:var(--card);font-weight:bold}
+.opt input:checked+span{background:var(--acc);border-color:var(--acc);color:#2b1d00}
+.opt input:focus-visible+span{outline:3px solid var(--acc);outline-offset:2px}
+fieldset.bad{outline:2px solid var(--pink);outline-offset:8px;border-radius:8px}
+h2{font-size:1.4rem;margin:34px 0 4px}
+.ban{background:var(--card);border-radius:14px;padding:14px;margin:12px 0;position:relative}
+.ban .g{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:480px){.ban .g{grid-template-columns:1fr}}
 button.files{background:var(--acc);color:#2b1d00;margin:0 0 10px;font-size:1.05rem}
 button:disabled{opacity:.5;cursor:wait}
 #msg{margin-top:16px;font-weight:bold;min-height:1.4em}
 .ok{color:#8affb0}.err{color:#ff9aa8}
 </style></head><body><main>
 <h1>Что поставим на дискотеке?</h1>
-<p class="sub">Это анонимно. Пиши названия, прикладывай файлы, а если песен несколько, нажми «Добавить файлы» и выбери сразу все.</p>
+<p class="sub">Это анонимно. Выбери класс, а дальше всё по желанию: пиши названия, прикладывай файлы, а если песен несколько, нажми «Добавить файлы» и выбери сразу все.</p>
 
-<label for="note">Пожелания</label>
+<fieldset id="grade">
+  <legend>В каком ты классе? <span class="req">обязательно</span></legend>
+  <label class="opt"><input type="radio" name="grade" value="5-7"><span>5–7 класс</span></label>
+  <label class="opt"><input type="radio" name="grade" value="8-11"><span>8–11 класс</span></label>
+</fieldset>
+
+<label for="note">Пожелания <span class="dim">(необязательно)</span></label>
 <textarea id="note" placeholder="Например: побольше медленных танцев в конце"></textarea>
 
 <div id="songs"></div>
 <input type="file" id="pick" multiple hidden accept=".mp3,.wav,.ogg,.m4a,.aac,.flac,audio/*">
 <button class="main files" id="addfile" type="button">📁 Добавить файлы (можно сразу много)</button>
 <button class="add" id="add" type="button">+ Добавить песню без файла</button>
+<h2>Какие песни не стоит ставить?</h2>
+<p class="sub">Необязательно. Напиши, что тебе не нравится.</p>
+<div id="bans"></div>
+<button class="add" id="addban" type="button">+ Добавить песню, которую не стоит ставить</button>
 <button class="main" id="send" type="button">Отправить</button>
 <div id="msg" role="status"></div>
 </main>
@@ -50,6 +76,8 @@ function addRow(file){
   d.innerHTML = '<button class="rm" type="button" aria-label="Убрать песню">×</button>'+
     '<div class="g"><div><label>Название</label><input type="text" class="t"></div>'+
     '<div><label>Автор</label><input type="text" class="a"></div></div>'+
+    '<label style="margin-top:10px">Куда поставить</label>'+
+    '<select class="w"><option value="">Не важно</option><option>Медляк</option><option>Начало</option><option>Середина</option><option>Конец</option></select>'+
     '<input type="file" class="f" accept=".mp3,.wav,.ogg,.m4a,.aac,.flac,audio/*">';
   d.querySelector(".rm").onclick = () => { d.remove(); if(!box.children.length) addRow(); };
   if(file){
@@ -69,6 +97,17 @@ pick.onchange = () => {
 };
 document.getElementById("add").onclick = () => { addRow(); box.lastChild.querySelector(".t").focus(); };
 
+const bans = document.getElementById("bans");
+function addBan(){
+  const d = document.createElement("div"); d.className = "ban";
+  d.innerHTML = '<button class="rm" type="button" aria-label="Убрать">×</button>'+
+    '<div class="g"><div><label>Название</label><input type="text" class="t"></div>'+
+    '<div><label>Автор</label><input type="text" class="a"></div></div>';
+  d.querySelector(".rm").onclick = () => d.remove();
+  bans.appendChild(d);
+}
+document.getElementById("addban").onclick = () => { addBan(); bans.lastChild.querySelector(".t").focus(); };
+
 function say(t, c){ msg.textContent = t; msg.className = c || ""; }
 
 document.getElementById("send").onclick = async function(){
@@ -76,9 +115,14 @@ document.getElementById("send").onclick = async function(){
   const rows = [...box.children].map(r => ({
     title: r.querySelector(".t").value.trim(),
     author: r.querySelector(".a").value.trim(),
+    when: r.querySelector(".w").value,
     file: r.querySelector(".f").files[0] || null
   })).filter(r => r.title || r.author || r.file);
-  if(!note && !rows.length){ say("Напиши пожелание или добавь хотя бы одну песню.", "err"); return; }
+  const banned = [...bans.children].map(r => ({title:r.querySelector(".t").value.trim(), author:r.querySelector(".a").value.trim()})).filter(r => r.title || r.author);
+  const g = document.querySelector('input[name=grade]:checked');
+  const fs = document.getElementById("grade");
+  fs.classList.toggle("bad", !g);
+  if(!g){ say("Выбери класс: 5–7 или 8–11.", "err"); fs.scrollIntoView({behavior:"smooth", block:"center"}); return; }
   this.disabled = true; say("Отправляю…");
   try{
     const songs = [];
@@ -94,14 +138,14 @@ document.getElementById("send").onclick = async function(){
         if(!up.ok) throw new Error("Не удалось загрузить файл «"+r.file.name+"».");
         url = SB+"/storage/v1/object/public/songs/"+path;
       }
-      songs.push({title:r.title, author:r.author, url, filename: r.file ? r.file.name : null});
+      songs.push({title:r.title, author:r.author, when:r.when, url, filename: r.file ? r.file.name : null});
     }
     const res = await fetch(SB+"/rest/v1/requests", {method:"POST",
       headers:{apikey:KEY, Authorization:"Bearer "+KEY, "Content-Type":"application/json", Prefer:"return=minimal"},
-      body: JSON.stringify({note, songs})});
+      body: JSON.stringify({grade:g.value, note, songs, banned})});
     if(!res.ok) throw new Error("Сервер не принял заявку. Попробуй ещё раз.");
     say("Готово! Заявка отправлена. Можно отправить ещё.", "ok");
-    document.getElementById("note").value = ""; box.innerHTML = ""; addRow();
+    document.getElementById("note").value = ""; g.checked = false; box.innerHTML = ""; bans.innerHTML = ""; addRow();
   }catch(e){ say(e.message, "err"); }
   this.disabled = false;
 };
