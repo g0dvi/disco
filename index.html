@@ -69,9 +69,8 @@ button:disabled{opacity:.5;cursor:wait}
   <p class="sub">Почта: i@godvi.ru</p>
 </main>
 <script>
-// ВАШИ ДАННЫЕ SUPABASE
-const SB = "https://roolbmnfwenhkajgmvrh.supabase.co";
-const KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvb2xibW5md2VuaGthamdtdnJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5Mjg1NDEsImV4cCI6MjA4OTUwNDU0MX0.Av0eE_b5gPaHhoitDaR9N4sdt5ne6dik3r5NMX07T6g";
+// !!! ВАШ URL WORKER'А !!!
+const WORKER_URL = "https://disco.bss19011985.workers.dev";
 
 const box = document.getElementById("songs"), msg = document.getElementById("msg");
 function addRow(file){
@@ -113,23 +112,6 @@ document.getElementById("addban").onclick = () => { addBan(); bans.lastChild.que
 
 function say(t, c){ msg.textContent = t; msg.className = c || ""; }
 
-// Функция загрузки файла на Catbox
-async function uploadToCatbox(file) {
-  const formData = new FormData();
-  formData.append("reqtype", "fileupload");
-  formData.append("fileToUpload", file);
-  
-  const res = await fetch("https://catbox.moe/user/api.php", {
-    method: "POST",
-    body: formData
-  });
-  
-  if (!res.ok) throw new Error("Ошибка загрузки на Catbox");
-  const text = await res.text();
-  if (!text.startsWith("http")) throw new Error("Catbox вернул ошибку: " + text);
-  return text.trim();
-}
-
 document.getElementById("send").onclick = async function(){
   const note = document.getElementById("note").value.trim();
   const rows = [...box.children].map(r => ({
@@ -148,31 +130,26 @@ document.getElementById("send").onclick = async function(){
   this.disabled = true; say("Отправляю…");
   
   try {
-    const songs = [];
-    for(const [i, r] of rows.entries()){
-      let url = null;
-      if(r.file){
-        say("Загружаю файл "+(i+1)+" из "+rows.length+"…");
-        url = await uploadToCatbox(r.file);
-      }
-      songs.push({title:r.title, author:r.author, when:r.when, url, filename: r.file ? r.file.name : null});
-    }
+    const formData = new FormData();
+    formData.append("grade", g.value);
+    formData.append("note", note);
     
-    // Отправляем в Supabase
-    const res = await fetch(SB+"/rest/v1/requests", {
-      method:"POST",
-      headers:{
-        apikey:KEY, 
-        Authorization:"Bearer "+KEY, 
-        "Content-Type":"application/json", 
-        Prefer:"return=minimal"
-      },
-      body: JSON.stringify({grade:g.value, note, songs, banned})
+    const songsData = rows.map(r => ({ title: r.title, author: r.author, when: r.when }));
+    formData.append("songs", JSON.stringify(songsData));
+    formData.append("banned", JSON.stringify(banned));
+
+    rows.forEach((r, i) => {
+      if (r.file) formData.append(`file_${i}`, r.file);
     });
-    
-    if(!res.ok) {
-        const errText = await res.text();
-        throw new Error("Сервер не принял заявку. " + errText);
+
+    const res = await fetch(WORKER_URL, {
+      method: "POST",
+      body: formData
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.error || "Сервер не принял заявку.");
     }
     
     say("Готово! Заявка отправлена. Можно отправить ещё.", "ok");
