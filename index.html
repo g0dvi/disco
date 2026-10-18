@@ -69,9 +69,8 @@ button:disabled{opacity:.5;cursor:wait}
   <p class="sub">Почта: i@godvi.ru</p>
 </main>
 <script>
-// ВСТАВЬ СВОИ ДАННЫЕ ИЗ SUPABASE (Project Settings → API)
-const SB = "https://roolbmnfwenhkajgmvrh.supabase.co";
-const KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvb2xibW5md2VuaGthamdtdnJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5Mjg1NDEsImV4cCI6MjA4OTUwNDU0MX0.Av0eE_b5gPaHhoitDaR9N4sdt5ne6dik3r5NMX07T6g";
+// --- ЗАМЕНИТЕ ЭТУ СТРОКУ НА ВАШ URL WORKER'А ---
+const WORKER_URL = "https://disco-worker.ВАШ-АККАУНТ.workers.dev";
 
 const box = document.getElementById("songs"), msg = document.getElementById("msg");
 function addRow(file){
@@ -126,30 +125,45 @@ document.getElementById("send").onclick = async function(){
   const fs = document.getElementById("grade");
   fs.classList.toggle("bad", !g);
   if(!g){ say("Выбери класс: 5–7 или 8–11.", "err"); fs.scrollIntoView({behavior:"smooth", block:"center"}); return; }
+  
   this.disabled = true; say("Отправляю…");
-  try{
-    const songs = [];
-    for(const [i, r] of rows.entries()){
-      let url = null;
-      if(r.file){
+  
+  try {
+    const formData = new FormData();
+    formData.append("grade", g.value);
+    formData.append("note", note);
+    
+    // Текстовые данные песен отправляем как JSON
+    const songsData = rows.map(r => ({ title: r.title, author: r.author, when: r.when }));
+    formData.append("songs", JSON.stringify(songsData));
+    
+    // Запрещенные песни
+    formData.append("banned", JSON.stringify(banned));
+
+    // Добавляем файлы, если они есть
+    rows.forEach((r, i) => {
+      if (r.file) {
         if(r.file.size > 50*1024*1024) throw new Error("Файл «"+r.file.name+"» больше 50 МБ.");
-        say("Загружаю файл "+(i+1)+" из "+rows.length+"…");
-        const ext = (r.file.name.match(/\.[a-z0-9]+$/i) || [".mp3"])[0].toLowerCase();
-        const path = crypto.randomUUID()+ext;
-        const up = await fetch(SB+"/storage/v1/object/songs/"+path, {method:"POST",
-          headers:{apikey:KEY, Authorization:"Bearer "+KEY, "Content-Type": r.file.type || "audio/mpeg"}, body:r.file});
-        if(!up.ok) throw new Error("Не удалось загрузить файл «"+r.file.name+"».");
-        url = SB+"/storage/v1/object/public/songs/"+path;
+        formData.append(`file_${i}`, r.file);
       }
-      songs.push({title:r.title, author:r.author, when:r.when, url, filename: r.file ? r.file.name : null});
+    });
+
+    // Отправляем всё на наш Cloudflare Worker
+    const res = await fetch(WORKER_URL, {
+      method: "POST",
+      body: formData
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.error || "Сервер не принял заявку.");
     }
-    const res = await fetch(SB+"/rest/v1/requests", {method:"POST",
-      headers:{apikey:KEY, Authorization:"Bearer "+KEY, "Content-Type":"application/json", Prefer:"return=minimal"},
-      body: JSON.stringify({grade:g.value, note, songs, banned})});
-    if(!res.ok) throw new Error("Сервер не принял заявку. Попробуй ещё раз.");
+    
     say("Готово! Заявка отправлена. Можно отправить ещё.", "ok");
     document.getElementById("note").value = ""; g.checked = false; box.innerHTML = ""; bans.innerHTML = ""; addRow();
-  }catch(e){ say(e.message, "err"); }
+  } catch(e) { 
+    say(e.message, "err"); 
+  }
   this.disabled = false;
 };
 </script></body></html>
