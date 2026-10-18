@@ -2,7 +2,7 @@
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Заявки песен на дискотеку</title>
+<title>Заявки песен на дискотеку (Админ)</title>
 <style>
 :root{--bg:#231a4f;--card:#2f2566;--line:#4a3d8f;--txt:#fff6e8;--dim:#b9b0e0;--acc:#ffb347;--pink:#ff5c8a}
 *{box-sizing:border-box}
@@ -40,8 +40,7 @@ button:focus-visible,input:focus{outline:3px solid var(--acc);outline-offset:1px
 <h1>Заявки песен на дискотеку</h1>
 
 <form class="login" id="login">
-  <input id="em" type="email" placeholder="Почта" autocomplete="username" required>
-  <input id="pw" type="password" placeholder="Пароль" autocomplete="current-password" required>
+  <input id="pw" type="password" placeholder="Секретный ключ" autocomplete="current-password" required>
   <button>Войти</button> <span id="lerr" style="color:#ff9aa8"></span>
 </form>
 
@@ -53,31 +52,41 @@ button:focus-visible,input:focus{outline:3px solid var(--acc);outline-offset:1px
 <div id="modal"><div class="sheet" id="sheet"></div></div>
 </main>
 <script>
-// ТЕ ЖЕ ДАННЫЕ, ЧТО В index.html
-const SB = "https://roolbmnfwenhkajgmvrh.supabase.co";
-const KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvb2xibW5md2VuaGthamdtdnJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5Mjg1NDEsImV4cCI6MjA4OTUwNDU0MX0.Av0eE_b5gPaHhoitDaR9N4sdt5ne6dik3r5NMX07T6g";
+// --- ЗАМЕНИТЕ НА ВАШ URL WORKER'А ---
+const WORKER_URL = "https://api.bratoyd.fun"; 
+// Секретный ключ, который вы придумаете и укажете в Worker'е
+let secret = sessionStorage.getItem("sk"); 
 
-let token = sessionStorage.getItem("tk"), rows = [], filter = "all";
+let rows = [], filter = "all";
 const MARK = {ok:"✅", no:"❌", maybe:"❓"};
 const FILTERS = [["all","Все"],["new","Не смотрел"],["ok","✅"],["no","❌"],["maybe","❓"],["5-7","5–7 класс"],["8-11","8–11 класс"]];
 const match = (r,k) => k==="all" || (k==="new" ? !r.status : (k==="5-7"||k==="8-11") ? r.grade===k : r.status===k);
 const GR = {"5-7":"5–7 кл.","8-11":"8–11 кл."};
-const H = () => ({apikey:KEY, Authorization:"Bearer "+token, "Content-Type":"application/json"});
 const $ = id => document.getElementById(id);
 function el(tag, props, ...kids){ const e = document.createElement(tag); Object.assign(e, props||{}); kids.forEach(k => e.append(k)); return e; }
 
-$("login").onsubmit = async ev => {
+// Функция для запросов к Worker'у (добавляет секретный ключ в заголовок)
+const H = () => ({"X-Admin-Secret": secret, "Content-Type": "application/json"});
+
+$("login").onsubmit = ev => {
   ev.preventDefault();
-  const r = await fetch(SB+"/auth/v1/token?grant_type=password", {method:"POST",
-    headers:{apikey:KEY,"Content-Type":"application/json"}, body:JSON.stringify({email:$("em").value, password:$("pw").value})});
-  if(!r.ok){ $("lerr").textContent = "Неверная почта или пароль"; return; }
-  token = (await r.json()).access_token; sessionStorage.setItem("tk", token); start();
+  secret = $("pw").value;
+  sessionStorage.setItem("sk", secret);
+  start();
 };
 
 async function load(){
-  const r = await fetch(SB+"/rest/v1/requests?select=*&order=created_at.desc", {headers:H()});
-  if(!r.ok){ sessionStorage.removeItem("tk"); token = null; $("app").hidden = true; $("login").hidden = false; return; }
-  rows = await r.json(); draw();
+  try {
+    const r = await fetch(WORKER_URL + "/api/requests", { headers: H() });
+    if(!r.ok) {
+      if(r.status === 401) { sessionStorage.removeItem("sk"); secret = null; $("app").hidden = true; $("login").hidden = false; throw new Error("Неверный ключ"); }
+      throw new Error("Ошибка загрузки");
+    }
+    rows = await r.json();
+    draw();
+  } catch(e) {
+    $("lerr").textContent = e.message;
+  }
 }
 function start(){ $("login").hidden = true; $("app").hidden = false; load(); }
 
@@ -106,33 +115,55 @@ function open(r){
   const x = el("button", {className:"x", textContent:"×"}); x.onclick = close;
   s.append(x, el("h2", {textContent:"Заявка"+(GR[r.grade] ? " · "+GR[r.grade] : "")}), el("div", {className:"d", style:"color:#b9b0e0", textContent:new Date(r.created_at).toLocaleString("ru-RU")}));
   if(r.note) s.append(el("div", {className:"note", textContent:r.note}));
-  (r.songs||[]).forEach(g => {
+  
+  // Если songs - это JSON-строка (как мы отправляли), парсим ее
+  let songsArr = [];
+  try { songsArr = typeof r.songs === 'string' ? JSON.parse(r.songs) : (r.songs || []); } catch(e) {}
+  // В нашей новой структуре файлы лежат отдельно, но мы их объединили в songs
+  const files = songsArr.files || [];
+  const tracks = songsArr.songs || [];
+
+  tracks.forEach((g, idx) => {
     const d = el("div", {className:"s"}, el("b", {textContent:[g.title, g.author].filter(Boolean).join(" — ") || "(без названия)"}));
     if(g.when) d.append(el("span", {textContent:" · "+g.when, style:"color:#ffb347;font-weight:bold"}));
-    if(g.url){ d.append(el("audio", {controls:true, preload:"none", src:g.url}), el("a", {href:g.url, download:g.filename||"", textContent:"  Скачать "+(g.filename||""), style:"color:#ffb347;font-size:.85rem"})); }
+    // Ссылка на файл, если есть
+    const fileUrl = files[idx];
+    if(fileUrl){ 
+        d.append(el("audio", {controls:true, preload:"none", src:fileUrl}), 
+        el("a", {href:fileUrl, target:"_blank", textContent:"  Скачать файл", style:"color:#ffb347;font-size:.85rem"})); 
+    }
     s.append(d);
   });
-  if((r.banned||[]).length){
+
+  let bannedArr = [];
+  try { bannedArr = typeof r.banned === 'string' ? JSON.parse(r.banned) : (r.banned || []); } catch(e) {}
+  if(bannedArr.length){
     s.append(el("h3", {textContent:"Не ставить", style:"margin:16px 0 4px;color:#ff9aa8"}));
-    r.banned.forEach(g => s.append(el("div", {className:"s", textContent:[g.title, g.author].filter(Boolean).join(" — ")})));
+    bannedArr.forEach(g => s.append(el("div", {className:"s", textContent:[g.title, g.author].filter(Boolean).join(" — ")})));
   }
+  
   const st = el("div", {className:"st"});
   Object.entries(MARK).forEach(([k,m]) => {
     const b = el("button", {textContent:m, className: r.status===k ? "on" : ""});
     b.onclick = async () => { const v = r.status===k ? null : k; await patch(r, {status:v}); open(r); };
     st.append(b);
   });
+  
   const del = el("button", {className:"del", textContent:"Удалить заявку"});
-  del.onclick = async () => { if(!confirm("Удалить насовсем?")) return;
-    await fetch(SB+"/rest/v1/requests?id=eq."+r.id, {method:"DELETE", headers:H()}); rows = rows.filter(z => z!==r); close(); draw(); };
+  del.onclick = async () => { 
+    if(!confirm("Удалить насовсем?")) return;
+    await fetch(WORKER_URL + "/api/requests/" + r.id, {method:"DELETE", headers:H()}); 
+    rows = rows.filter(z => z!==r); close(); draw(); 
+  };
   s.append(st, del); $("modal").classList.add("show");
 }
+
 async function patch(r, body){
-  const res = await fetch(SB+"/rest/v1/requests?id=eq."+r.id, {method:"PATCH", headers:{...H(), Prefer:"return=minimal"}, body:JSON.stringify(body)});
+  const res = await fetch(WORKER_URL + "/api/requests/" + r.id, {method:"PATCH", headers:H(), body:JSON.stringify(body)});
   if(res.ok) Object.assign(r, body); draw();
 }
 function close(){ $("modal").classList.remove("show"); }
 $("modal").onclick = e => { if(e.target.id==="modal") close(); };
 addEventListener("keydown", e => { if(e.key==="Escape") close(); });
-if(token) start();
+if(secret) start();
 </script></body></html>
