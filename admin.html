@@ -9,6 +9,11 @@
 body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.4 "Trebuchet MS",system-ui,sans-serif;padding:20px 16px 60px}
 main{max-width:900px;margin:0 auto}
 h1{margin:0 0 14px;font-size:1.8rem}
+input{background:var(--bg);color:var(--txt);border:2px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;width:100%;margin-bottom:10px}
+button{font:inherit;cursor:pointer;color:var(--txt)}
+button:focus-visible,input:focus{outline:3px solid var(--acc);outline-offset:1px}
+.login{max-width:340px}
+.login button{background:var(--pink);border:0;border-radius:10px;padding:10px 18px;font-weight:bold}
 .bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
 .bar button{background:var(--card);border:2px solid var(--line);border-radius:20px;padding:6px 14px;color:var(--txt);cursor:pointer}
 .bar button.on{border-color:var(--acc);color:var(--acc)}
@@ -33,25 +38,48 @@ h1{margin:0 0 14px;font-size:1.8rem}
 .empty{color:var(--dim)}
 </style></head><body><main>
 <h1>Заявки песен на дискотеку</h1>
-<div class="bar" id="bar"></div>
-<div id="list"></div>
+
+<form class="login" id="login">
+  <input id="em" type="email" placeholder="Почта" autocomplete="username" required>
+  <input id="pw" type="password" placeholder="Пароль" autocomplete="current-password" required>
+  <button>Войти</button> <span id="lerr" style="color:#ff9aa8"></span>
+</form>
+
+<div id="app" hidden>
+  <div class="bar" id="bar"></div>
+  <div id="list"></div>
+</div>
+
 <div id="modal"><div class="sheet" id="sheet"></div></div>
 </main>
 <script>
 // !!! ВАШ URL WORKER'А !!!
 const WORKER_URL = "https://disco.bss19011985.workers.dev";
 
-let rows = [], filter = "all";
+let token = sessionStorage.getItem("tk"), rows = [], filter = "all";
 const MARK = {ok:"✅", no:"❌", maybe:"❓"};
 const FILTERS = [["all","Все"],["new","Не смотрел"],["ok","✅"],["no","❌"],["maybe","❓"],["5-7","5–7 класс"],["8-11","8–11 класс"]];
 const match = (r,k) => k==="all" || (k==="new" ? !r.status : (k==="5-7"||k==="8-11") ? r.grade===k : r.status===k);
 const GR = {"5-7":"5–7 кл.","8-11":"8–11 кл."};
+const H = () => ({Authorization:"Bearer "+token, "Content-Type":"application/json"});
 const $ = id => document.getElementById(id);
 function el(tag, props, ...kids){ const e = document.createElement(tag); Object.assign(e, props||{}); kids.forEach(k => e.append(k)); return e; }
 
+$("login").onsubmit = async ev => {
+  ev.preventDefault();
+  try {
+    const r = await fetch(WORKER_URL + "/api/login", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify({email:$("em").value, password:$("pw").value})});
+    if(!r.ok){ $("lerr").textContent = "Неверная почта или пароль"; return; }
+    token = (await r.json()).token; sessionStorage.setItem("tk", token); start();
+  } catch(e) { $("lerr").textContent = "Сервер недоступен"; }
+};
+
+function logout(){ sessionStorage.removeItem("tk"); token = null; $("app").hidden = true; $("login").hidden = false; }
 async function load(){
   try {
-    const r = await fetch(WORKER_URL + "/api/requests");
+    const r = await fetch(WORKER_URL + "/api/requests", {headers:H()});
+    if(r.status === 401){ logout(); return; }
     if(!r.ok) throw new Error("Ошибка загрузки");
     rows = await r.json();
     draw();
@@ -59,7 +87,7 @@ async function load(){
     alert("Не удалось загрузить заявки. " + e.message);
   }
 }
-load();
+function start(){ $("login").hidden = true; $("app").hidden = false; load(); }
 
 function draw(){
   const bar = $("bar"); bar.innerHTML = "";
@@ -87,50 +115,45 @@ function open(r){
   s.append(x, el("h2", {textContent:"Заявка"+(GR[r.grade] ? " · "+GR[r.grade] : "")}), el("div", {className:"d", style:"color:#b9b0e0", textContent:new Date(r.created_at).toLocaleString("ru-RU")}));
   if(r.note) s.append(el("div", {className:"note", textContent:r.note}));
   
-  let songsArr = [];
-  try { songsArr = typeof r.songs === 'string' ? JSON.parse(r.songs) : (r.songs || {}); } catch(e) {}
-  const files = songsArr.files || [];
-  const tracks = songsArr.songs || [];
-
-  tracks.forEach((g, idx) => {
+  (r.songs||[]).forEach(g => {
     const d = el("div", {className:"s"}, el("b", {textContent:[g.title, g.author].filter(Boolean).join(" — ") || "(без названия)"}));
     if(g.when) d.append(el("span", {textContent:" · "+g.when, style:"color:#ffb347;font-weight:bold"}));
-    const fileUrl = files[idx];
-    if(fileUrl){ 
-        d.append(el("audio", {controls:true, preload:"none", src:fileUrl}), 
-        el("a", {href:fileUrl, target:"_blank", textContent:"  Скачать файл", style:"color:#ffb347;font-size:.85rem"})); 
+    if(g.url){
+        d.append(el("audio", {controls:true, preload:"none", src:g.url}),
+        el("a", {href:g.url, target:"_blank", textContent:"  Скачать "+(g.filename||"файл"), style:"color:#ffb347;font-size:.85rem"}));
     }
     s.append(d);
   });
 
-  let bannedArr = [];
-  try { bannedArr = typeof r.banned === 'string' ? JSON.parse(r.banned) : (r.banned || []); } catch(e) {}
-  if(bannedArr.length){
+  if((r.banned||[]).length){
     s.append(el("h3", {textContent:"Не ставить", style:"margin:16px 0 4px;color:#ff9aa8"}));
-    bannedArr.forEach(g => s.append(el("div", {className:"s", textContent:[g.title, g.author].filter(Boolean).join(" — ")})));
+    r.banned.forEach(g => s.append(el("div", {className:"s", textContent:[g.title, g.author].filter(Boolean).join(" — ")})));
   }
   
   const st = el("div", {className:"st"});
   Object.entries(MARK).forEach(([k,m]) => {
     const b = el("button", {textContent:m, className: r.status===k ? "on" : ""});
-    b.onclick = async () => { const v = r.status===k ? null : k; await patch(r, {status:v}); open(r); };
+    b.onclick = async () => { const v = r.status===k ? null : k; if(await patch(r, {status:v})) open(r); };
     st.append(b);
   });
   
   const del = el("button", {className:"del", textContent:"Удалить заявку"});
   del.onclick = async () => { 
     if(!confirm("Удалить насовсем?")) return;
-    await fetch(WORKER_URL + "/api/requests/" + r.id, {method:"DELETE"}); 
-    rows = rows.filter(z => z!==r); close(); draw(); 
+    const res = await fetch(WORKER_URL + "/api/requests/" + r.id, {method:"DELETE", headers:H()});
+    if(res.status === 401){ close(); logout(); return; }
+    if(res.ok){ rows = rows.filter(z => z!==r); close(); draw(); }
   };
   s.append(st, del); $("modal").classList.add("show");
 }
 
 async function patch(r, body){
-  const res = await fetch(WORKER_URL + "/api/requests/" + r.id, {method:"PATCH", body:JSON.stringify(body)});
-  if(res.ok) Object.assign(r, body); draw();
+  const res = await fetch(WORKER_URL + "/api/requests/" + r.id, {method:"PATCH", headers:H(), body:JSON.stringify(body)});
+  if(res.status === 401){ close(); logout(); return false; }
+  if(res.ok) Object.assign(r, body); draw(); return true;
 }
 function close(){ $("modal").classList.remove("show"); }
 $("modal").onclick = e => { if(e.target.id==="modal") close(); };
 addEventListener("keydown", e => { if(e.key==="Escape") close(); });
+if(token) start();
 </script></body></html>

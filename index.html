@@ -142,7 +142,7 @@ document.getElementById("send").onclick = async function(){
       if (r.file) formData.append(`file_${i}`, r.file);
     });
 
-    const res = await fetch(WORKER_URL, {
+    const res = await fetch(WORKER_URL + "/api/submit", {
       method: "POST",
       body: formData
     });
