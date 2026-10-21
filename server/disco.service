@@ -1,0 +1,22 @@
+[Unit]
+Description=Disco song requests backend
+After=network.target
+
+[Service]
+User=disco
+Group=disco
+Environment=DATA_DIR=/srv/disco/data
+# ADMIN_PASSWORD, SECRET, PUBLIC_URL
+EnvironmentFile=/srv/disco/disco.env
+ExecStart=/usr/local/bin/node /srv/disco/app/server.js
+Restart=always
+# Файлы доступны группе disco, в которой состоит caddy
+UMask=0027
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/srv/disco/data
+
+[Install]
+WantedBy=multi-user.target

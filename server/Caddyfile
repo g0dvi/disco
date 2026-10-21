@@ -1,0 +1,11 @@
+bratoyd.fun {
+	# Загруженные песни Caddy отдаёт прямо с диска, с перемоткой
+	handle /files/* {
+		root * /srv/disco/data
+		header Access-Control-Allow-Origin *
+		file_server
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+}

@@ -41,6 +41,11 @@ button.files{background:var(--acc);color:#2b1d00;margin:0 0 10px;font-size:1.05r
 button:disabled{opacity:.5;cursor:wait}
 #msg{margin-top:16px;font-weight:bold;min-height:1.4em}
 .ok{color:#8affb0}.err{color:#ff9aa8}
+.up{margin-top:8px;font-size:.85rem;color:var(--dim)}
+.up .bar{height:6px;background:var(--bg);border-radius:3px;overflow:hidden;margin-bottom:4px}
+.up .bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .2s}
+.up.done{color:#8affb0}.up.done .bar i{background:#5be08a}
+.up.fail{color:#ff9aa8}.up.fail .bar i{background:var(--pink)}
 </style></head><body><main>
 <h1>Что поставим на дискотеке?</h1>
 <p class="sub">Это анонимно. Выбери класс, а дальше всё по желанию: пиши названия, прикладывай файлы, а если песен несколько, нажми «Добавить файлы» и выбери сразу все.</p>
@@ -69,8 +74,81 @@ button:disabled{opacity:.5;cursor:wait}
   <p class="sub">Почта: i@godvi.ru</p>
 </main>
 <script>
-// !!! ВАШ URL WORKER'А !!!
-const WORKER_URL = "https://disco.bss19011985.workers.dev";
+// !!! АДРЕС СЕРВЕРА !!!
+const API_URL = "https://bratoyd.fun";
+const CHUNK = 4*1024*1024, MAX_FILE = 200*1024*1024;
+
+// Файл начинает грузиться сразу после выбора, по одному за раз, кусками по 4 МБ.
+// Если связь оборвалась, повторяется только последний кусок.
+let queue = Promise.resolve();
+function startUpload(d){
+  if(d.up) d.up.cancelled = true;
+  const file = d.querySelector(".f").files[0], ui = d.querySelector(".up");
+  d.up = null; ui.hidden = !file;
+  if(!file) return;
+  const st = d.up = {file, id:null, sent:0, inflight:0, done:false, error:null, cancelled:false};
+  st.show = (text, cls) => {
+    ui.className = "up " + (cls || "");
+    ui.querySelector("span").textContent = text;
+    ui.querySelector("i").style.width = Math.floor((st.sent + st.inflight) / file.size * 100) + "%";
+  };
+  if(file.size > MAX_FILE){ st.error = "Файл «"+file.name+"» больше 200 МБ"; st.show(st.error, "fail"); st.promise = Promise.resolve(); return; }
+  enqueue(st);
+}
+function enqueue(st){
+  st.error = null; st.show("Ждёт очереди…");
+  st.promise = queue = queue.then(() => st.cancelled || sendFile(st));
+}
+async function sendFile(st){
+  const f = st.file;
+  try {
+    if(st.id){
+      const r = await fetch(API_URL + "/api/uploads/" + st.id);
+      if(r.status === 404){ st.id = null; st.sent = 0; } else if(r.ok) st.sent = (await r.json()).offset;
+    }
+    if(!st.id){
+      const r = await fetch(API_URL + "/api/uploads", {method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({name:f.name, size:f.size, type:f.type})});
+      const j = await r.json().catch(() => ({}));
+      if(!r.ok) throw new Error(j.error || "Сервер не принял файл");
+      st.id = j.id;
+    }
+    let fails = 0;
+    while(st.sent < f.size && !st.cancelled){
+      try { st.sent = await sendChunk(st); fails = 0; }
+      catch(e) {
+        st.inflight = 0;
+        if(e.fatal || ++fails > 5) throw e;
+        st.show("Связь прервалась, продолжаю…");
+        await new Promise(r => setTimeout(r, 1000 * fails * fails));
+      }
+    }
+    st.done = !st.cancelled; st.show("Загружено ✓", "done");
+  } catch(e) {
+    st.error = "Не загрузился файл «"+f.name+"»: "+e.message;
+    st.show(st.error + ". Нажми «Отправить», попробую ещё раз.", "fail");
+  }
+}
+function sendChunk(st){
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open("PATCH", API_URL + "/api/uploads/" + st.id);
+    x.setRequestHeader("Upload-Offset", st.sent);
+    x.timeout = 120000;
+    x.upload.onprogress = e => { st.inflight = e.loaded; st.show("Загружаю… " + Math.floor((st.sent + e.loaded) / st.file.size * 100) + "%"); };
+    x.onload = () => {
+      st.inflight = 0;
+      let j = {}; try { j = JSON.parse(x.responseText); } catch(e) {}
+      // 409: сервер уже получил другой объём — продолжаем с его места
+      if((x.status === 200 || x.status === 409) && Number.isInteger(j.offset)) return resolve(j.offset);
+      const err = new Error(j.error || "ошибка " + x.status);
+      err.fatal = x.status >= 400 && x.status < 500 && x.status !== 408 && x.status !== 429;
+      reject(err);
+    };
+    x.onerror = x.ontimeout = () => reject(new Error("нет связи"));
+    x.send(st.file.slice(st.sent, st.sent + CHUNK));
+  });
+}
 
 const box = document.getElementById("songs"), msg = document.getElementById("msg");
 function addRow(file){
@@ -80,13 +158,16 @@ function addRow(file){
     '<div><label>Исполнитель<span class="dim">(необязательно)</span></label><input type="text" class="a"></div></div>'+
     '<label style="margin-top:10px">Куда поставить</label>'+
     '<select class="w"><option value="">Не важно</option><option>Медляк</option><option>Начало</option><option>Середина</option><option>Конец</option></select>'+
-    '<input type="file" class="f" accept=".mp3,.wav,.ogg,.m4a,.aac,.flac,audio/*">';
-  d.querySelector(".rm").onclick = () => { d.remove(); if(!box.children.length) addRow(); };
+    '<input type="file" class="f" accept=".mp3,.wav,.ogg,.m4a,.aac,.flac,audio/*">'+
+    '<div class="up" hidden><div class="bar"><i></i></div><span></span></div>';
+  d.querySelector(".rm").onclick = () => { if(d.up) d.up.cancelled = true; d.remove(); if(!box.children.length) addRow(); };
+  d.querySelector(".f").onchange = () => startUpload(d);
+  box.appendChild(d);
   if(file){
     const dt = new DataTransfer(); dt.items.add(file); d.querySelector(".f").files = dt.files;
     d.querySelector(".t").value = file.name.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ");
+    startUpload(d);
   }
-  box.appendChild(d);
 }
 addRow();
 const pick = document.getElementById("pick");
@@ -118,8 +199,8 @@ document.getElementById("send").onclick = async function(){
     title: r.querySelector(".t").value.trim(),
     author: r.querySelector(".a").value.trim(),
     when: r.querySelector(".w").value,
-    file: r.querySelector(".f").files[0] || null
-  })).filter(r => r.title || r.author || r.file);
+    up: r.up
+  })).filter(r => r.title || r.author || r.up);
   
   const banned = [...bans.children].map(r => ({title:r.querySelector(".t").value.trim(), author:r.querySelector(".a").value.trim()})).filter(r => r.title || r.author);
   const g = document.querySelector('input[name=grade]:checked');
@@ -130,28 +211,32 @@ document.getElementById("send").onclick = async function(){
   this.disabled = true; say("Отправляю…");
   
   try {
-    const formData = new FormData();
-    formData.append("grade", g.value);
-    formData.append("note", note);
-    
-    const songsData = rows.map(r => ({ title: r.title, author: r.author, when: r.when }));
-    formData.append("songs", JSON.stringify(songsData));
-    formData.append("banned", JSON.stringify(banned));
+    const ups = rows.map(r => r.up).filter(Boolean);
+    const big = ups.find(u => u.file.size > MAX_FILE);
+    if (big) throw new Error("Файл «" + big.file.name + "» больше 200 МБ. Убери его или выбери другой.");
+    ups.filter(u => u.error).forEach(enqueue);
 
-    rows.forEach((r, i) => {
-      if (r.file) formData.append(`file_${i}`, r.file);
-    });
+    const total = ups.reduce((n, u) => n + u.file.size, 0);
+    const progress = () => say("Догружаю файлы… " + Math.floor(ups.reduce((n, u) => n + (u.done ? u.file.size : u.sent + u.inflight), 0) / total * 100) + "%");
+    if (ups.some(u => !u.done)) progress();
+    const tick = setInterval(progress, 300);
+    await Promise.all(ups.map(u => u.promise)).finally(() => clearInterval(tick));
+    const bad = ups.find(u => u.error);
+    if (bad) throw new Error(bad.error + ". Нажми «Отправить» ещё раз.");
 
-    const res = await fetch(WORKER_URL + "/api/submit", {
+    say("Отправляю…");
+    const res = await fetch(API_URL + "/api/submit", {
       method: "POST",
-      body: formData
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({grade: g.value, note, banned,
+        songs: rows.map(r => ({title: r.title, author: r.author, when: r.when, upload: r.up ? r.up.id : null}))})
     });
 
     if (!res.ok) {
-      const errorData = await res.json();
-      throw new Error(errorData.error || "Сервер не принял заявку.");
+      const errorData = await res.json().catch(() => ({}));
+      throw new Error(errorData.error || "Сервер не принял заявку. Попробуй ещё раз.");
     }
-    
+
     say("Готово! Заявка отправлена. Можно отправить ещё.", "ok");
     document.getElementById("note").value = ""; g.checked = false; box.innerHTML = ""; bans.innerHTML = ""; addRow();
   } catch(e) { 
