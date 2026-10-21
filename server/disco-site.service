@@ -1,0 +1,11 @@
+[Unit]
+Description=Pull disco site pages from GitHub
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=disco
+Group=disco
+Environment=HOME=/tmp
+PrivateTmp=true
+ExecStart=/usr/bin/git -C /srv/disco/site pull --ff-only -q

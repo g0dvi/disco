@@ -1,6 +1,6 @@
 // Бэкенд дискотеки: принимает песни кусками, хранит заявки в SQLite, файлы на диске.
 // Запуск: DATA_DIR=/srv/disco/data ADMIN_PASSWORD=... SECRET=... PUBLIC_URL=https://bratoyd.fun node server.js
-// Файлы из DATA_DIR/files раздаёт Caddy по адресу PUBLIC_URL/files/...
+// Caddy на том же домене раздаёт страницы сайта и файлы из DATA_DIR/files (server/Caddyfile)
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -10,12 +10,6 @@ const {DatabaseSync} = require("node:sqlite");
 const MB = 1024 * 1024;
 const AUDIO = /\.(mp3|wav|ogg|oga|opus|m4a|aac|flac|wma|webm)$/i;
 const STATUSES = [null, "ok", "no", "maybe"];
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Authorization, Content-Type, Upload-Offset",
-  "Access-Control-Max-Age": "86400",
-};
 
 class HttpError extends Error {
   constructor(status, message, extra) { super(message); this.status = status; this.extra = extra; }
@@ -24,7 +18,7 @@ const fail = (status, message, extra) => { throw new HttpError(status, message, 
 const str = (v, max = 300) => String(v ?? "").trim().slice(0, max);
 
 function send(res, status, data) {
-  res.writeHead(status, {...CORS, "Content-Type": "application/json; charset=utf-8"});
+  res.writeHead(status, {"Content-Type": "application/json; charset=utf-8"});
   res.end(JSON.stringify(data));
 }
 
@@ -48,17 +42,22 @@ async function readJson(req) {
   catch (e) { throw e instanceof HttpError ? e : new HttpError(400, "Неверные данные"); }
 }
 
-function createApp(opts) {
-  const cfg = {maxFile: 200 * MB, chunkMax: 16 * MB, minFree: 1024 * MB, uploadTtl: 24 * 3600e3, tokenTtl: 30 * 24 * 3600e3, ...opts};
-  const tmpDir = path.join(cfg.dataDir, "tmp"), filesDir = path.join(cfg.dataDir, "files");
-  fs.mkdirSync(tmpDir, {recursive: true});
-  fs.mkdirSync(filesDir, {recursive: true});
-
-  const db = new DatabaseSync(path.join(cfg.dataDir, "disco.db"));
+// В songs лежит JSON [{title, author, when, file, filename}], file — имя в DATA_DIR/files
+function openDb(dataDir) {
+  fs.mkdirSync(path.join(dataDir, "tmp"), {recursive: true});
+  fs.mkdirSync(path.join(dataDir, "files"), {recursive: true});
+  const db = new DatabaseSync(path.join(dataDir, "disco.db"));
   db.exec(`
     create table if not exists requests (id text primary key, created_at text not null, grade text, note text,
       songs text not null, banned text not null, status text);
     create table if not exists uploads (id text primary key, name text not null, size integer not null, created_at integer not null);`);
+  return db;
+}
+
+function createApp(opts) {
+  const cfg = {maxFile: 200 * MB, chunkMax: 16 * MB, minFree: 1024 * MB, uploadTtl: 24 * 3600e3, tokenTtl: 30 * 24 * 3600e3, ...opts};
+  const tmpDir = path.join(cfg.dataDir, "tmp"), filesDir = path.join(cfg.dataDir, "files");
+  const db = openDb(cfg.dataDir);
   const q = {
     addUpload: db.prepare("insert into uploads (id, name, size, created_at) values (?, ?, ?, ?)"),
     getUpload: db.prepare("select * from uploads where id = ?"),
@@ -173,8 +172,8 @@ function createApp(opts) {
     },
   };
 
+  // API работает только для страниц с того же домена, разрешений для чужих сайтов (CORS) нет
   const server = http.createServer(async (req, res) => {
-    if (req.method === "OPTIONS") { res.writeHead(204, CORS); return res.end(); }
     try {
       const {pathname} = new URL(req.url, "http://x");
       const m = pathname.match(/^(\/api\/(?:uploads|requests))\/([0-9a-f-]{36})$/);
@@ -199,7 +198,7 @@ function createApp(opts) {
   return {server, db, cleanup};
 }
 
-module.exports = {createApp};
+module.exports = {createApp, openDb, STATUSES};
 
 if (require.main === module) {
   const env = process.env;

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8">
+<script>if(location.hostname.endsWith("github.io")) location.replace("https://bratoyd.fun/"+(location.pathname.endsWith("admin.html")?"admin.html":""));</script>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Заказ песен на дискотеку</title>
 <style>
@@ -74,8 +75,8 @@ button:disabled{opacity:.5;cursor:wait}
   <p class="sub">Почта: i@godvi.ru</p>
 </main>
 <script>
-// !!! АДРЕС СЕРВЕРА !!!
-const API_URL = "https://bratoyd.fun";
+// API на том же домене, что и сайт (bratoyd.fun)
+const API_URL = "";
 const CHUNK = 4*1024*1024, MAX_FILE = 200*1024*1024;
 
 // Файл начинает грузиться сразу после выбора, по одному за раз, кусками по 4 МБ.

@@ -39,20 +39,18 @@ async function login(s) {
 
 const submit = (s, body) => s.json("/api/submit", "POST", {grade: "8-11", note: "", songs: [], banned: [], ...body});
 
-test("preflight allows the site to call any method", async t => {
+test("other sites get no CORS permission, the API is same-origin only", async t => {
   const s = await start(t);
-  const r = await s.call("/api/requests/x", {method: "OPTIONS"});
-  assert.equal(r.status, 204);
-  assert.equal(r.headers.get("access-control-allow-origin"), "*");
-  assert.match(r.headers.get("access-control-allow-methods"), /PATCH/);
-  assert.match(r.headers.get("access-control-allow-headers"), /Upload-Offset/i);
+  const pre = await s.call("/api/requests/x", {method: "OPTIONS", headers: {Origin: "https://evil.example", "Access-Control-Request-Method": "PATCH"}});
+  assert.equal(pre.headers.get("access-control-allow-origin"), null);
+  const r = await s.call("/api/uploads", {method: "POST", headers: {Origin: "https://evil.example", "Content-Type": "application/json"}, body: JSON.stringify({name: "a.mp3", size: 1})});
+  assert.equal(r.headers.get("access-control-allow-origin"), null);
 });
 
-test("errors are JSON with CORS headers", async t => {
+test("errors are JSON", async t => {
   const s = await start(t);
   const r = await s.call("/nope");
   assert.equal(r.status, 404);
-  assert.equal(r.headers.get("access-control-allow-origin"), "*");
   assert.ok((await r.json()).error);
 });
 

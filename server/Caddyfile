@@ -1,11 +1,24 @@
 bratoyd.fun {
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+
 	# Загруженные песни Caddy отдаёт прямо с диска, с перемоткой
 	handle /files/* {
 		root * /srv/disco/data
-		header Access-Control-Allow-Origin *
 		file_server
 	}
+
+	# Страницы сайта: копия репозитория, раз в минуту обновляется из GitHub (disco-site.timer).
+	# Наружу отдаются только две страницы, остальное (код сервера, .git) — нет
+	@site path / /index.html /admin.html /admin
+	handle @site {
+		root * /srv/disco/site
+		rewrite /admin /admin.html
+		file_server
+	}
+
 	handle {
-		reverse_proxy 127.0.0.1:8080
+		respond "Не найдено" 404
 	}
 }

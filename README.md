@@ -1,12 +1,16 @@
 # Дискотека — заказ песен
+Сайт: https://bratoyd.fun, админка: https://bratoyd.fun/admin
 - index.html — сайт для учеников
 - admin.html — страница организатора (вход по паролю)
-- server/ — бэкенд на своём сервере (bratoyd.fun): заявки в SQLite, файлы на диске
+- server/ — бэкенд на своём сервере: заявки в SQLite, файлы на диске, API на том же домене (/api)
+
+Страницы сервер раз в минуту сам забирает из этого репозитория, так что правки index.html и admin.html
+появляются на bratoyd.fun через минуту после коммита. Старый адрес на GitHub Pages перекидывает на bratoyd.fun.
 - worker.js, setup.sql — старый бэкенд на Cloudflare + Supabase, больше не используется
 
 ## Сервер
 Ubuntu 24.04, Node 24, Caddy. Код в `/srv/disco/app`, данные (база и песни) в `/srv/disco/data`,
-пароль админки и секреты в `/srv/disco/disco.env`.
+пароль админки и секреты в `/srv/disco/disco.env`, копия сайта в `/srv/disco/site`.
 
 Обновить код:
 
